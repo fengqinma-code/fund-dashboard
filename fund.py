@@ -13,13 +13,32 @@ import pandas as pd
 import numpy as np
 import io
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 from datetime import datetime
+import os
 
-# ---------- Matplotlib 中文 & 负号 ----------
-plt.rcParams.update({
-    "font.family": ["SimHei", "Microsoft YaHei", "Arial Unicode MS"],
-    "axes.unicode_minus": False,
-})
+
+# ---------- 强制加载中文字体文件 ----------
+def load_chinese_font():
+    font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'msyh.ttf')
+    if os.path.exists(font_path):
+        # 将字体文件添加到 matplotlib 的字体管理器
+        fm.fontManager.addfont(font_path)
+        # 获取该字体的实际名称（可能为 'SimHei'）
+        font_name = fm.FontProperties(fname=font_path).get_name()
+        # 设置全局字体
+        plt.rcParams['font.family'] = font_name
+        plt.rcParams['axes.unicode_minus'] = False
+        return True
+    else:
+        st.warning("中文字体文件未找到，图表中文可能无法正常显示。")
+        # 可选的备用方案：仍然尝试用字体名称列表（但云端大概率无效）
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
+        plt.rcParams['axes.unicode_minus'] = False
+        return False
+
+# 在程序启动时执行字体加载
+load_chinese_font()
 
 st.set_page_config(page_title="基金运营自动化工具", layout="wide")
 st.title("📈 基金运营自动化工具")
@@ -106,19 +125,35 @@ def agg_strategy(m, d_this, d_last):
     g.insert(0, "统计口径", g.pop("策略"))          # 把策略名放到统计口径列
     return g
 
-def top3_txn(df):
+def top3_txn(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    直接按确认金额排序，取金额最大的前三个
+    返回列：客户名称 | 产品名称 | 申购 | 认购 | 赎回
+    """
+    # 金额转数值
+    df = df.copy()
     df["确认金额"] = pd.to_numeric(df["确认金额"], errors="coerce").fillna(0)
-    pvt = df.pivot_table(index=["客户名称", "产品名称"],
-                         columns="交易类型",
-                         values="确认金额",
-                         aggfunc="sum",
-                         fill_value=0).reset_index()
-    for col in ["申购", "赎回"]:
-        if col not in pvt.columns:
-            pvt[col] = 0
-    return pvt.sort_values("申购", ascending=False).head(3)[
-        ["客户名称", "产品名称", "申购", "赎回"]
-    ]
+
+    # ① 取确认金额最大的前三行
+    top3_raw = df.sort_values("确认金额", ascending=False).head(3)
+
+    # ② 行列转换：把交易类型摊成列
+    tbl = (
+        top3_raw.pivot(
+            index=["客户名称", "产品名称"],
+            columns="交易类型",
+            values="确认金额"
+        )
+        .fillna(0)          # 没有该类型填 0
+        .reset_index()
+    )
+
+    # ③ 缺失列补 0，保证列顺序
+    for col in ["申购", "赎回", "认购"]:
+        if col not in tbl.columns:
+            tbl[col] = 0
+
+    return tbl[["客户名称", "产品名称", "申购", "赎回", "认购"]]
 
 # ----------------------------- 主流程 -----------------------------
 if all([up_this, up_last, up_y0, up_txn]):
@@ -216,7 +251,7 @@ if all([up_this, up_last, up_y0, up_txn]):
     ax2.set_xlim(left=min(0, top10["周度涨跌幅(%)"].min()*1.1))
     st.pyplot(fig2)
 
-    # ----- 图表 3：产品周度涨跌 Last-10 -----------------------------
+    # ----- 图表 3：产品周度涨跌 Last-5 -----------------------------
     st.markdown("#### 🔥 周度涨跌幅 Last-5")
     bottom5 = (
         metrics
