@@ -20,7 +20,7 @@ import os
 
 # ---------- 强制加载中文字体文件 ----------
 def load_chinese_font():
-    font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'msyh.ttf')
+    font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'msyhbd.ttf')
     if os.path.exists(font_path):
         # 将字体文件添加到 matplotlib 的字体管理器
         fm.fontManager.addfont(font_path)
