@@ -20,7 +20,7 @@ import os
 
 # ---------- 强制加载中文字体文件 ----------
 def load_chinese_font():
-    font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'msyhbd.ttf')
+    font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'msyh.ttf')
     if os.path.exists(font_path):
         # 将字体文件添加到 matplotlib 的字体管理器
         fm.fontManager.addfont(font_path)
@@ -108,13 +108,32 @@ def detect_strategy(pname):
     return "其他"
 
 def build_metrics(df_this, df_last, df_y0, d_this, d_last, d_y0):
-    m = df_this.merge(df_last, on="产品名称")\
-               .merge(df_y0, on="产品名称", how="left")
-    m["周度涨跌幅(%)"] = (m[f"单位净值 {d_this}"] - m[f"单位净值 {d_last}"]) \
-                         / m[f"单位净值 {d_last}"] * 100
-    m["YTD (%)"] = (m[f"累计单位净值 {d_this}"] - m[f"累计单位净值 {d_y0}"]) \
-                   / m[f"累计单位净值 {d_y0}"] * 100
+    """
+    用 outer join 保留『只出现在本周或上上周』的产品。
+    NaN → 0，避免新产品或已清盘产品被丢弃。
+    """
+    m = (
+        df_this.merge(df_last, on="产品名称", how="outer", suffixes=("_this", "_last"))
+              .merge(df_y0,  on="产品名称", how="left")        # 年初净值可缺
+              .fillna(0)
+    )
+
+    # 计算列名
+    col_nv_this  = f"单位净值 {d_this}"
+    col_nv_last  = f"单位净值 {d_last}"
+    col_cnv_this = f"累计单位净值 {d_this}"
+    col_cnv_y0    = f"累计单位净值 {d_y0}"
+    col_scale_this = f"管理规模 截止{d_this}"
+    col_scale_last = f"管理规模 截止{d_last}"
+
+    # 派生指标
+    m["周度涨跌幅(%)"]   = (m[col_nv_this]  - m[col_nv_last])  / m[col_nv_last].replace({0: np.nan}) * 100
+    m["YTD (%)"]        = (m[col_cnv_this]  - m[col_cnv_y0])    / m[col_cnv_y0].replace({0: np.nan}) * 100
+
+    m["规模增长"]        =  m[col_scale_this] - m[col_scale_last]
+    m["周度规模增长率%"] = m["规模增长"] / m[col_scale_last].replace({0: np.nan}) * 100
     m["策略"] = m["产品名称"].apply(detect_strategy)
+
     return m
 
 def agg_strategy(m, d_this, d_last):
